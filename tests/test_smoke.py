@@ -1,5 +1,7 @@
 """Smoke tests for baseline project setup."""
 
+from importlib.metadata import version
+
 from pipeworks_dev_notes import __version__
 from pipeworks_dev_notes.metadata import default_template
 
@@ -7,7 +9,8 @@ from pipeworks_dev_notes.metadata import default_template
 def test_version_is_defined() -> None:
     """Project exposes a version string."""
 
-    assert __version__ == "0.1.0"
+    assert __version__
+    assert __version__ == version("pipeworks-dev-notes")
 
 
 def test_default_template_has_expected_defaults() -> None:
