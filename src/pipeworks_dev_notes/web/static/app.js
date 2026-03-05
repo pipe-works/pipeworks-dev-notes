@@ -5,6 +5,7 @@ const noteMeta = document.querySelector("#note-meta");
 const themeToggle = document.querySelector("#theme-toggle");
 const saveNoteButton = document.querySelector("#save-note");
 const newNoteButton = document.querySelector("#new-note");
+const scaffoldButton = document.querySelector("#scaffold-btn");
 
 const fieldFilename = document.querySelector("#field-filename");
 const fieldTitle = document.querySelector("#field-title");
@@ -19,7 +20,23 @@ const fieldContent = document.querySelector("#field-content");
 let activeNoteId = null;
 let isSaving = false;
 let canonicalRepos = [];
+let workspaceRepos = { discovered: [], scaffolded: [] };
 let filenameManuallyEdited = false;
+const COLLAPSED_KEY = "pipeworks-dev-notes-collapsed";
+
+function getCollapsedRepos() {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSED_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function setCollapsedRepo(repo, collapsed) {
+  const state = getCollapsedRepos();
+  state[repo] = collapsed;
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify(state));
+}
 
 function setStatus(text) {
   statusText.textContent = text;
@@ -149,28 +166,70 @@ function fillFormFromNote(note) {
   setIdentityFieldsReadOnly(true);
 }
 
-function renderList(notes) {
+function renderTree(notes) {
   noteList.innerHTML = "";
-  if (!notes.length) {
+
+  const allRepos = new Set([
+    ...workspaceRepos.scaffolded,
+    ...notes.map((n) => n.canonical_repo),
+  ]);
+  const sortedRepos = [...allRepos].sort();
+
+  if (!sortedRepos.length) {
     const empty = document.createElement("li");
-    empty.textContent = "No shared note folders found.";
+    empty.textContent = "No repos found. Click Scaffold to set up.";
     noteList.appendChild(empty);
     return;
   }
 
+  const notesByRepo = {};
   for (const note of notes) {
-    const li = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "note-link";
-    if (note.note_id === activeNoteId) {
-      button.classList.add("is-active");
+    if (!notesByRepo[note.canonical_repo]) {
+      notesByRepo[note.canonical_repo] = [];
     }
-    button.dataset.noteId = note.note_id;
-    button.textContent = `${note.title} (${note.canonical_repo}/${note.filename})`;
-    button.addEventListener("click", () => loadNote(note.note_id));
-    li.appendChild(button);
-    noteList.appendChild(li);
+    notesByRepo[note.canonical_repo].push(note);
+  }
+
+  const collapsed = getCollapsedRepos();
+
+  for (const repo of sortedRepos) {
+    const repoNotes = notesByRepo[repo] || [];
+    const isCollapsed = collapsed[repo] === true;
+
+    const group = document.createElement("li");
+    group.className = "repo-group" + (isCollapsed ? " collapsed" : "");
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "repo-toggle";
+    const count = repoNotes.length;
+    toggle.textContent = `${isCollapsed ? "\u25b6" : "\u25bc"} ${repo} (${count})`;
+    toggle.addEventListener("click", () => {
+      const nowCollapsed = !group.classList.contains("collapsed");
+      group.classList.toggle("collapsed");
+      setCollapsedRepo(repo, nowCollapsed);
+      toggle.textContent = `${nowCollapsed ? "\u25b6" : "\u25bc"} ${repo} (${count})`;
+    });
+    group.appendChild(toggle);
+
+    const noteContainer = document.createElement("ul");
+    noteContainer.className = "repo-notes";
+    for (const note of repoNotes) {
+      const li = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "note-link";
+      if (note.note_id === activeNoteId) {
+        button.classList.add("is-active");
+      }
+      button.dataset.noteId = note.note_id;
+      button.textContent = `${note.title} (${note.filename})`;
+      button.addEventListener("click", () => loadNote(note.note_id));
+      li.appendChild(button);
+      noteContainer.appendChild(li);
+    }
+    group.appendChild(noteContainer);
+    noteList.appendChild(group);
   }
 }
 
@@ -196,9 +255,17 @@ async function fetchJson(path, init = {}) {
   return response.json();
 }
 
+async function loadWorkspaceRepos() {
+  try {
+    workspaceRepos = await fetchJson("/api/workspace/repos");
+  } catch {
+    workspaceRepos = { discovered: [], scaffolded: [] };
+  }
+}
+
 async function loadNotes() {
   const notes = await fetchJson("/api/notes");
-  renderList(notes);
+  renderTree(notes);
   return notes;
 }
 
@@ -272,6 +339,27 @@ async function saveCurrentNote() {
   }
 }
 
+async function scaffoldWorkspace() {
+  setStatus("Scaffolding workspace...");
+  try {
+    const result = await fetchJson("/api/workspace/scaffold", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apply: true }),
+    });
+    const msg = result.created.length
+      ? `Scaffolded ${result.created.length} repo(s): ${result.created.join(", ")}`
+      : "All repos already scaffolded.";
+    setStatus(msg);
+    await loadWorkspaceRepos();
+    await loadRepos();
+    clearForm();
+    await loadNotes();
+  } catch (error) {
+    setStatus(`Scaffold failed: ${error}`);
+  }
+}
+
 async function startNewNote() {
   clearForm();
   await loadNotes();
@@ -284,12 +372,16 @@ async function init() {
   themeToggle.addEventListener("click", toggleTheme);
   saveNoteButton.addEventListener("click", saveCurrentNote);
   newNoteButton.addEventListener("click", startNewNote);
+  if (scaffoldButton) {
+    scaffoldButton.addEventListener("click", scaffoldWorkspace);
+  }
   fieldTitle.addEventListener("input", syncFilenameFromTitle);
   fieldFilename.addEventListener("input", () => {
     filenameManuallyEdited = true;
   });
 
   try {
+    await loadWorkspaceRepos();
     await loadRepos();
     clearForm();
     const notes = await loadNotes();

@@ -132,6 +132,40 @@ body {
   gap: var(--sp-2);
 }
 
+.repo-group {
+  margin-bottom: var(--sp-1);
+}
+
+.repo-toggle {
+  width: 100%;
+  background: transparent;
+  color: var(--col-accent);
+  border: none;
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+}
+
+.repo-toggle:hover {
+  color: var(--col-text);
+}
+
+.repo-notes {
+  margin: 0;
+  padding: 0 0 0 var(--sp-3);
+  list-style: none;
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.repo-group.collapsed .repo-notes {
+  display: none;
+}
+
 .note-link {
   width: 100%;
   background: transparent;
