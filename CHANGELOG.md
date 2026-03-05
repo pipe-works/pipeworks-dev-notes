@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.5](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.4...pipeworks-dev-notes-v0.1.5) (2026-03-05)
+
+
+### Features
+
+* **web:** INDEX.md default view, file browser, image support ([#11](https://github.com/pipe-works/pipeworks-dev-notes/issues/11)) ([f208c9e](https://github.com/pipe-works/pipeworks-dev-notes/commit/f208c9e03877327060bf6a7196ba567df2d15a5c))
+
+
+### Fixes
+
+* **store:** recursively discover notes in subdirectories ([#13](https://github.com/pipe-works/pipeworks-dev-notes/issues/13)) ([943248a](https://github.com/pipe-works/pipeworks-dev-notes/commit/943248ae1caa0fb3eee05739acaeeb28a14452bd))
+
 ## [0.1.4](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.3...pipeworks-dev-notes-v0.1.4) (2026-03-05)
 
 
