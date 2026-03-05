@@ -8,15 +8,21 @@
   </head>
   <body>
     <header class="app-header">
-      <h1 class="app-header__title">pipeworks-dev-notes</h1>
-      <button id="theme-toggle" class="btn btn--secondary" type="button">Toggle Theme</button>
+      <span class="app-header__icon" aria-hidden="true">&#x1F4DD;</span>
+      <h1 class="app-header__title">Dev Notes</h1>
+      <span class="app-header__subtitle">PIPE-WORKS &middot; SHARED DEV NOTES</span>
+      <span id="app-version" class="app-header__subtitle"></span>
+      <span class="app-header__spacer"></span>
+      <button id="theme-toggle" class="btn btn--sm btn--secondary" type="button">Dark</button>
     </header>
 
     <main class="app-main">
       <section class="panel panel--dark">
         <div class="panel__header">
           <h2 class="panel__title">Shared Notes</h2>
-          <button id="new-note" class="btn btn--secondary" type="button">New</button>
+          <button id="scaffold-btn" class="btn btn--sm btn--secondary" type="button">Scaffold</button>
+          <button id="rebuild-index-btn" class="btn btn--sm btn--secondary" type="button">Rebuild Index</button>
+          <button id="new-note" class="btn btn--sm btn--secondary" type="button">New</button>
         </div>
         <p class="panel__desc">Metadata-driven index across shared cross-repo notes.</p>
         <ul id="note-list" class="note-list" aria-label="Shared notes"></ul>
