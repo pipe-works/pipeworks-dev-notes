@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.1...pipeworks-dev-notes-v0.1.2) (2026-03-05)
+
+
+### Features
+
+* **notes:** implement canonical repo + filename note workflow ([06291fc](https://github.com/pipe-works/pipeworks-dev-notes/commit/06291fc6366800a7847cfafbc7886b49590a994b))
+* **notes:** switch to canonical-repo filename note model ([5beb502](https://github.com/pipe-works/pipeworks-dev-notes/commit/5beb5028e26f83993994732880685c2ccca77077))
+
 ## [0.1.1](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.0...pipeworks-dev-notes-v0.1.1) (2026-03-05)
 
 

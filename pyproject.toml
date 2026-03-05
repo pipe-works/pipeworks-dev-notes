@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pipeworks-dev-notes"
-version = "0.1.1"
+version = "0.1.2"
 description = "Lightweight markdown notes tooling for cross-repo pipe-works development governance."
 readme = "README.md"
 requires-python = ">=3.12"
