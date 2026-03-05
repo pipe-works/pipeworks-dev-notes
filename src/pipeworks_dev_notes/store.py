@@ -175,37 +175,52 @@ class NotesStore:
         return f"{repo_name}/{filename}"
 
     def _summaries_for_directory(self, directory: Path) -> list[NoteSummary]:
+        repo_name = directory.name
+        summaries: list[NoteSummary] = []
+        self._collect_notes(directory, repo_name, directory, summaries)
+        return summaries
+
+    def _collect_notes(
+        self,
+        current: Path,
+        repo_name: str,
+        repo_root: Path,
+        summaries: list[NoteSummary],
+    ) -> None:
         markdown_files = sorted(
-            [
-                item
-                for item in directory.iterdir()
-                if item.is_file() and item.suffix.lower() == ".md"
-            ],
+            [item for item in current.iterdir() if item.is_file() and item.suffix.lower() == ".md"],
             key=lambda item: item.name,
         )
-        summaries: list[NoteSummary] = []
 
         for note_file in markdown_files:
-            if note_file.name == "README.md":
+            rel = note_file.relative_to(repo_root)
+            rel_str = str(rel)
+
+            if note_file.name == "README.md" and current == repo_root:
                 resolved = _ResolvedNote(
-                    note_id=directory.name,
-                    canonical_repo=directory.name,
+                    note_id=repo_name,
+                    canonical_repo=repo_name,
                     filename="README.md",
                     path=note_file,
                     legacy=True,
                 )
             else:
+                note_id = f"{repo_name}/{rel_str}"
                 resolved = _ResolvedNote(
-                    note_id=self.note_id_from_parts(
-                        repo_name=directory.name, filename=note_file.name
-                    ),
-                    canonical_repo=directory.name,
-                    filename=note_file.name,
+                    note_id=note_id,
+                    canonical_repo=repo_name,
+                    filename=rel_str,
                     path=note_file,
                     legacy=False,
                 )
             summaries.append(self._summary_from_file(resolved=resolved))
-        return summaries
+
+        subdirs = sorted(
+            [d for d in current.iterdir() if d.is_dir() and not d.name.startswith(".")],
+            key=lambda d: d.name,
+        )
+        for subdir in subdirs:
+            self._collect_notes(subdir, repo_name, repo_root, summaries)
 
     def _summary_from_file(self, *, resolved: _ResolvedNote) -> NoteSummary:
         parsed, title = self._parsed_and_title_from_file(
@@ -249,14 +264,14 @@ class NotesStore:
             raise ValueError("Missing note identifier")
 
         if "/" in cleaned:
-            repo_name, filename = cleaned.split("/", 1)
+            repo_name, rel_path = cleaned.split("/", 1)
             safe_repo = self._validated_repo(repo_name)
-            safe_filename = self._validated_filename(filename)
+            safe_path = self._validated_rel_path(rel_path)
             return _ResolvedNote(
-                note_id=self.note_id_from_parts(repo_name=safe_repo, filename=safe_filename),
+                note_id=f"{safe_repo}/{safe_path}",
                 canonical_repo=safe_repo,
-                filename=safe_filename,
-                path=self.base_dir / safe_repo / safe_filename,
+                filename=safe_path,
+                path=self.base_dir / safe_repo / safe_path,
                 legacy=False,
             )
 
@@ -298,6 +313,20 @@ class NotesStore:
                 "Invalid filename. Use letters, numbers, dots, underscores, "
                 "hyphens, and .md extension."
             )
+        return cleaned
+
+    @staticmethod
+    def _validated_rel_path(rel_path: str) -> str:
+        """Validate a relative path like 'subdir/file.md' within a repo."""
+        cleaned = rel_path.strip()
+        if not cleaned:
+            raise ValueError("Path is required")
+        if "\\" in cleaned or ".." in cleaned:
+            raise ValueError("Invalid path")
+        parts = cleaned.split("/")
+        for part in parts:
+            if not part or part.startswith("."):
+                raise ValueError("Invalid path segment")
         return cleaned
 
     @staticmethod
