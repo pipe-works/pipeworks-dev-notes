@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.3...pipeworks-dev-notes-v0.1.4) (2026-03-05)
+
+
+### Features
+
+* **web:** editor panel improvements and markdown tools ([#9](https://github.com/pipe-works/pipeworks-dev-notes/issues/9)) ([f282696](https://github.com/pipe-works/pipeworks-dev-notes/commit/f282696f7305994dbf10a1734026c75f2f7a3fc8))
+
 ## [0.1.3](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.2...pipeworks-dev-notes-v0.1.3) (2026-03-05)
 
 
