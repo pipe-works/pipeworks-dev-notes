@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from pipeworks_dev_notes import __version__
 from pipeworks_dev_notes.api_models import (
     DoctorEntryModel,
     DoctorResultModel,
@@ -48,6 +49,10 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/version")
+    async def version() -> dict[str, str]:
+        return {"version": __version__}
 
     @app.get("/api/notes", response_model=list[NoteSummaryModel])
     async def list_notes(

@@ -7,6 +7,7 @@ const saveNoteButton = document.querySelector("#save-note");
 const newNoteButton = document.querySelector("#new-note");
 const scaffoldButton = document.querySelector("#scaffold-btn");
 const rebuildIndexButton = document.querySelector("#rebuild-index-btn");
+const appVersion = document.querySelector("#app-version");
 
 const fieldFilename = document.querySelector("#field-filename");
 const fieldTitle = document.querySelector("#field-title");
@@ -46,8 +47,10 @@ function setStatus(text) {
 function setTheme(theme) {
   if (theme === "light") {
     document.documentElement.setAttribute("data-theme", "light");
+    themeToggle.textContent = "\u25d1 Light";
   } else {
     document.documentElement.removeAttribute("data-theme");
+    themeToggle.textContent = "\u25d1 Dark";
   }
   localStorage.setItem("pipeworks-dev-notes-theme", theme);
 }
@@ -401,6 +404,9 @@ async function init() {
   });
 
   try {
+    fetchJson("/api/version").then((data) => {
+      if (appVersion) appVersion.textContent = `V${data.version}`;
+    }).catch(() => {});
     await loadWorkspaceRepos();
     await loadRepos();
     clearForm();
