@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipeworks-dev-notes"
+version = "0.1.0"
+description = "Lightweight markdown notes tooling for cross-repo pipe-works development governance."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "pipe-works" }]
+dependencies = [
+  "fastapi>=0.115.0,<1",
+  "pydantic>=2.8.0,<3",
+  "pyyaml>=6.0.2,<7",
+  "uvicorn>=0.30.0,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black==26.1.0",
+  "httpx>=0.27.0,<1",
+  "mypy>=1.19.0",
+  "pre-commit>=4.2.0",
+  "pytest>=8.4.0,<9",
+  "pytest-cov>=6.0.0",
+  "ruff>=0.14.0",
+  "types-PyYAML>=6.0.12",
+]
+
+[project.scripts]
+pipeworks-dev-notes = "pipeworks_dev_notes.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --cov=pipeworks_dev_notes --cov-report=term-missing --cov-report=xml --cov-report=html"
+testpaths = ["tests"]
+markers = [
+  "unit: unit tests",
+  "integration: integration tests",
+  "slow: slow-running tests",
+]
+
+[tool.coverage.report]
+fail_under = 80
+skip_covered = true
+show_missing = true
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+strict_optional = true
+pretty = true
+files = ["src"]
