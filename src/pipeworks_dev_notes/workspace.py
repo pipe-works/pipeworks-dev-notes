@@ -215,8 +215,9 @@ class WorkspaceManager:
             "|------|------|-------|--------|------|",
         ]
         for note in notes:
+            note_link = f"[{note.title}]({note.note_id})"
             lines.append(
-                f"| {note.canonical_repo} | {note.title} | "
+                f"| {note.canonical_repo} | {note_link} | "
                 f"{note.owner or '-'} | {note.status or '-'} | "
                 f"{note.breaking_change_risk or '-'} |"
             )

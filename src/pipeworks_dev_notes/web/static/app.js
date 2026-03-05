@@ -6,6 +6,7 @@ const themeToggle = document.querySelector("#theme-toggle");
 const saveNoteButton = document.querySelector("#save-note");
 const newNoteButton = document.querySelector("#new-note");
 const scaffoldButton = document.querySelector("#scaffold-btn");
+const rebuildIndexButton = document.querySelector("#rebuild-index-btn");
 
 const fieldFilename = document.querySelector("#field-filename");
 const fieldTitle = document.querySelector("#field-title");
@@ -360,6 +361,22 @@ async function scaffoldWorkspace() {
   }
 }
 
+async function rebuildIndex() {
+  setStatus("Rebuilding INDEX.md...");
+  try {
+    const result = await fetchJson("/api/workspace/index", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apply: true }),
+    });
+    setStatus(
+      `INDEX.md rebuilt: ${result.note_count} note(s) across ${result.repo_count} repo(s).`
+    );
+  } catch (error) {
+    setStatus(`Rebuild index failed: ${error}`);
+  }
+}
+
 async function startNewNote() {
   clearForm();
   await loadNotes();
@@ -374,6 +391,9 @@ async function init() {
   newNoteButton.addEventListener("click", startNewNote);
   if (scaffoldButton) {
     scaffoldButton.addEventListener("click", scaffoldWorkspace);
+  }
+  if (rebuildIndexButton) {
+    rebuildIndexButton.addEventListener("click", rebuildIndex);
   }
   fieldTitle.addEventListener("input", syncFilenameFromTitle);
   fieldFilename.addEventListener("input", () => {

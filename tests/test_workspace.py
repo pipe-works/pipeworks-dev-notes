@@ -212,7 +212,7 @@ def test_generate_index_writes_file(tmp_path: Path) -> None:
     index_path = shared / "INDEX.md"
     assert index_path.exists()
     content = index_path.read_text(encoding="utf-8")
-    assert "Test Note" in content
+    assert "[Test Note](my_repo/test-note.md)" in content
     assert "my_repo" in content
 
 
