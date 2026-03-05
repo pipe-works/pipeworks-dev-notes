@@ -140,6 +140,35 @@ def test_create_note_requires_canonical_repo_directory(tmp_path: Path) -> None:
         )
 
 
+def test_nested_subdirectory_notes_discovered(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "my_repo" / "subdir"
+    repo_dir.mkdir(parents=True)
+    (repo_dir / "deep-note.md").write_text(
+        "---\ntitle: Deep Note\nowner: test\nstatus: draft\n"
+        "breaking_change_risk: low\ncanonical_repo: my_repo\n"
+        "impacted_repos: []\nlast_reviewed: ''\n---\nNested body\n",
+        encoding="utf-8",
+    )
+    # Also a top-level note
+    (tmp_path / "my_repo" / "top.md").write_text(
+        "---\ntitle: Top Note\n---\nTop body\n",
+        encoding="utf-8",
+    )
+
+    store = NotesStore(tmp_path)
+    notes = store.list_notes()
+    assert len(notes) == 2
+    ids = [n.note_id for n in notes]
+    assert "my_repo/subdir/deep-note.md" in ids
+    assert "my_repo/top.md" in ids
+
+    # Verify nested note can be fetched
+    deep = store.get_note("my_repo/subdir/deep-note.md")
+    assert deep is not None
+    assert deep.title == "Deep Note"
+    assert "Nested body" in deep.content
+
+
 def test_legacy_directory_read_compatibility(tmp_path: Path) -> None:
     _write_legacy_note(
         tmp_path,
