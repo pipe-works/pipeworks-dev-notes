@@ -24,9 +24,9 @@ def test_parse_with_frontmatter_extracts_metadata_and_body() -> None:
 
 def test_render_and_parse_round_trip() -> None:
     markdown = render_markdown_with_frontmatter(
-        title="Chat User LLM Systems",
         content="Body text",
         metadata={
+            "title": "Chat User LLM Systems",
             "owner": "aapark",
             "status": "active",
             "breaking_change_risk": "high",
@@ -39,5 +39,14 @@ def test_render_and_parse_round_trip() -> None:
     parsed = parse_markdown_with_frontmatter(markdown)
     assert parsed.metadata["owner"] == "aapark"
     assert parsed.metadata["status"] == "active"
-    assert "# Chat User LLM Systems" in parsed.body
     assert "Body text" in parsed.body
+
+
+def test_render_does_not_prepend_heading() -> None:
+    markdown = render_markdown_with_frontmatter(
+        content="Paragraph one\n\nParagraph two",
+        metadata={"title": "No Auto H1"},
+    )
+    parsed = parse_markdown_with_frontmatter(markdown)
+    assert parsed.metadata["title"] == "No Auto H1"
+    assert not parsed.body.startswith("# ")

@@ -32,12 +32,16 @@
         <form id="note-form" class="note-form" autocomplete="off">
           <div class="form-grid">
             <label class="field">
-              <span class="field__label">Slug</span>
-              <input id="field-slug" class="field__input" type="text" placeholder="chat-user-llm-systems" />
+              <span class="field__label">Canonical Repo</span>
+              <select id="field-canonical" class="field__input"></select>
             </label>
             <label class="field">
               <span class="field__label">Title</span>
               <input id="field-title" class="field__input" type="text" placeholder="Chat User LLM Systems" />
+            </label>
+            <label class="field">
+              <span class="field__label">Filename</span>
+              <input id="field-filename" class="field__input" type="text" placeholder="chat-user-llm-systems.md" />
             </label>
             <label class="field">
               <span class="field__label">Owner</span>
@@ -50,10 +54,6 @@
             <label class="field">
               <span class="field__label">Risk</span>
               <input id="field-risk" class="field__input" type="text" placeholder="medium" />
-            </label>
-            <label class="field">
-              <span class="field__label">Canonical Repo</span>
-              <input id="field-canonical" class="field__input" type="text" placeholder="pipeworks_mud_server" />
             </label>
             <label class="field">
               <span class="field__label">Last Reviewed</span>

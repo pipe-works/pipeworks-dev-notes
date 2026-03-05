@@ -43,14 +43,18 @@ def create_app() -> FastAPI:
     ) -> list[NoteSummaryModel]:
         return [NoteSummaryModel.model_validate(asdict(item)) for item in store.list_notes()]
 
-    @app.get("/api/notes/{slug}", response_model=NoteDocumentModel)
+    @app.get("/api/repos", response_model=list[str])
+    async def list_repos(store: NotesStore = Depends(_store_dependency)) -> list[str]:  # noqa: B008
+        return store.list_repos()
+
+    @app.get("/api/notes/{note_id:path}", response_model=NoteDocumentModel)
     async def get_note(
-        slug: str,
+        note_id: str,
         store: NotesStore = Depends(_store_dependency),  # noqa: B008
     ) -> NoteDocumentModel:
-        note = store.get_note(slug)
+        note = store.get_note(note_id)
         if note is None:
-            raise HTTPException(status_code=404, detail=f"Note '{slug}' not found")
+            raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found")
         return NoteDocumentModel.model_validate(asdict(note))
 
     @app.post(
@@ -62,29 +66,35 @@ def create_app() -> FastAPI:
         payload: NoteWriteRequestModel,
         store: NotesStore = Depends(_store_dependency),  # noqa: B008
     ) -> NoteDocumentModel:
-        slug = payload.slug or NotesStore.slug_from_text(payload.title)
-        if not slug:
-            raise HTTPException(status_code=400, detail="Unable to derive slug from title")
+        filename = payload.filename or NotesStore.filename_from_text(payload.title)
+        if not filename:
+            raise HTTPException(status_code=400, detail="Filename is required")
         try:
-            created = store.create_note(slug=slug, payload=_to_note_write(payload))
+            created = store.create_note(
+                canonical_repo=payload.canonical_repo,
+                filename=filename,
+                payload=_to_note_write(payload),
+            )
         except FileExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return NoteDocumentModel.model_validate(asdict(created))
 
-    @app.put("/api/notes/{slug}", response_model=NoteDocumentModel)
+    @app.put("/api/notes/{note_id:path}", response_model=NoteDocumentModel)
     async def update_note(
-        slug: str,
+        note_id: str,
         payload: NoteWriteRequestModel,
         store: NotesStore = Depends(_store_dependency),  # noqa: B008
     ) -> NoteDocumentModel:
         try:
-            updated = store.update_note(slug=slug, payload=_to_note_write(payload))
+            updated = store.update_note(note_id=note_id, payload=_to_note_write(payload))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if updated is None:
-            raise HTTPException(status_code=404, detail=f"Note '{slug}' not found")
+            raise HTTPException(status_code=404, detail=f"Note '{note_id}' not found")
         return NoteDocumentModel.model_validate(asdict(updated))
 
     return app

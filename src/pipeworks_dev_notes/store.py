@@ -11,19 +11,22 @@ from pipeworks_dev_notes.frontmatter import (
     render_markdown_with_frontmatter,
 )
 
-_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_REPO_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.md$")
+_LEGACY_NOTE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 @dataclass(frozen=True, slots=True)
 class NoteSummary:
     """Summary view for notes index responses."""
 
-    slug: str
+    note_id: str
+    canonical_repo: str
+    filename: str
     title: str
     owner: str
     status: str
     breaking_change_risk: str
-    canonical_repo: str
     impacted_repos: list[str]
     last_reviewed: str
 
@@ -32,7 +35,9 @@ class NoteSummary:
 class NoteDocument:
     """Full note document response."""
 
-    slug: str
+    note_id: str
+    canonical_repo: str
+    filename: str
     title: str
     metadata: dict[str, object]
     content: str
@@ -52,14 +57,35 @@ class NoteWrite:
     last_reviewed: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ResolvedNote:
+    note_id: str
+    canonical_repo: str
+    filename: str
+    path: Path
+    legacy: bool
+
+
 class NotesStore:
     """Notes store over the shared folder with read/write operations."""
 
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
 
+    def list_repos(self) -> list[str]:
+        """Return canonical repository directory names under the shared root."""
+
+        if not self.base_dir.exists():
+            return []
+        repos = [
+            item.name
+            for item in self.base_dir.iterdir()
+            if item.is_dir() and _REPO_PATTERN.fullmatch(item.name)
+        ]
+        return sorted(set(repos))
+
     def list_notes(self) -> list[NoteSummary]:
-        """Return metadata summaries for each directory note."""
+        """Return metadata summaries for new-format and legacy notes."""
 
         if not self.base_dir.exists():
             return []
@@ -68,107 +94,216 @@ class NotesStore:
         for directory in sorted(self.base_dir.iterdir(), key=lambda item: item.name):
             if not directory.is_dir():
                 continue
-            summary = self._build_summary(directory)
-            notes.append(summary)
+            notes.extend(self._summaries_for_directory(directory))
         return notes
 
-    def get_note(self, slug: str) -> NoteDocument | None:
-        """Return the full note markdown and metadata for a slug."""
+    def get_note(self, note_id: str) -> NoteDocument | None:
+        """Return full note markdown and metadata for a note identifier."""
 
-        note_dir = self.base_dir / slug
-        if not note_dir.is_dir():
+        try:
+            resolved = self._resolve_note(note_id)
+        except ValueError:
             return None
+        if not resolved.path.is_file():
+            return None
+        return self._document_from_file(resolved=resolved)
 
-        readme_path = note_dir / "README.md"
-        raw = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
-        parsed = parse_markdown_with_frontmatter(raw)
-        title = self._title_from_content_or_slug(slug=slug, content=raw)
-        return NoteDocument(slug=slug, title=title, metadata=parsed.metadata, content=parsed.body)
+    def create_note(
+        self, *, canonical_repo: str, filename: str, payload: NoteWrite
+    ) -> NoteDocument:
+        """Create a note file in `<canonical_repo>/<filename>.md`."""
 
-    def create_note(self, slug: str, payload: NoteWrite) -> NoteDocument:
-        """Create a new note folder and README."""
+        repo_name = self._validated_repo(canonical_repo)
+        file_name = self._validated_filename(filename)
+        repo_dir = self.base_dir / repo_name
+        if not repo_dir.is_dir():
+            raise FileNotFoundError(
+                f"Canonical repo directory '{repo_name}' does not exist under shared root"
+            )
 
-        safe_slug = self._validated_slug(slug)
-        note_dir = self.base_dir / safe_slug
-        if note_dir.exists():
-            raise FileExistsError(f"Note '{safe_slug}' already exists")
+        target = repo_dir / file_name
+        if target.exists():
+            raise FileExistsError(f"Note '{repo_name}/{file_name}' already exists")
 
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        note_dir.mkdir(parents=False, exist_ok=False)
-        readme_path = note_dir / "README.md"
-        readme_path.write_text(
+        target.write_text(
             render_markdown_with_frontmatter(
-                title=payload.title,
                 content=payload.content,
-                metadata=self._metadata_from_payload(payload),
+                metadata=self._metadata_from_payload(payload=payload),
             ),
             encoding="utf-8",
         )
-        created = self.get_note(safe_slug)
+        created = self.get_note(self.note_id_from_parts(repo_name=repo_name, filename=file_name))
         if created is None:
-            raise RuntimeError(f"Failed to read created note '{safe_slug}'")
+            raise RuntimeError(f"Failed to read created note '{repo_name}/{file_name}'")
         return created
 
-    def update_note(self, slug: str, payload: NoteWrite) -> NoteDocument | None:
-        """Update an existing note README."""
+    def update_note(self, *, note_id: str, payload: NoteWrite) -> NoteDocument | None:
+        """Update existing note content in place."""
 
-        safe_slug = self._validated_slug(slug)
-        note_dir = self.base_dir / safe_slug
-        if not note_dir.is_dir():
+        try:
+            resolved = self._resolve_note(note_id)
+        except ValueError as exc:
+            raise ValueError("Invalid note identifier") from exc
+
+        if not resolved.path.is_file():
             return None
 
-        readme_path = note_dir / "README.md"
-        readme_path.write_text(
+        resolved.path.write_text(
             render_markdown_with_frontmatter(
-                title=payload.title,
                 content=payload.content,
-                metadata=self._metadata_from_payload(payload),
+                metadata=self._metadata_from_payload(payload=payload),
             ),
             encoding="utf-8",
         )
-        return self.get_note(safe_slug)
+        return self.get_note(resolved.note_id)
 
     @staticmethod
-    def slug_from_text(value: str) -> str:
-        """Return a URL-safe note slug generated from free text."""
+    def filename_from_text(value: str) -> str:
+        """Return a safe markdown filename from free text."""
 
         lowered = value.strip().lower()
         lowered = re.sub(r"[^a-z0-9]+", "-", lowered)
-        normalized = re.sub(r"-{2,}", "-", lowered).strip("-")
-        return normalized
+        lowered = re.sub(r"-{2,}", "-", lowered).strip("-")
+        if not lowered:
+            return ""
+        return f"{lowered}.md"
 
-    def _build_summary(self, directory: Path) -> NoteSummary:
-        slug = directory.name
-        readme_path = directory / "README.md"
-        raw = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
-        parsed = parse_markdown_with_frontmatter(raw)
+    @staticmethod
+    def note_id_from_parts(*, repo_name: str, filename: str) -> str:
+        """Build note identifier from canonical repo and filename."""
 
+        return f"{repo_name}/{filename}"
+
+    def _summaries_for_directory(self, directory: Path) -> list[NoteSummary]:
+        markdown_files = sorted(
+            [
+                item
+                for item in directory.iterdir()
+                if item.is_file() and item.suffix.lower() == ".md"
+            ],
+            key=lambda item: item.name,
+        )
+        summaries: list[NoteSummary] = []
+
+        for note_file in markdown_files:
+            if note_file.name == "README.md":
+                resolved = _ResolvedNote(
+                    note_id=directory.name,
+                    canonical_repo=directory.name,
+                    filename="README.md",
+                    path=note_file,
+                    legacy=True,
+                )
+            else:
+                resolved = _ResolvedNote(
+                    note_id=self.note_id_from_parts(
+                        repo_name=directory.name, filename=note_file.name
+                    ),
+                    canonical_repo=directory.name,
+                    filename=note_file.name,
+                    path=note_file,
+                    legacy=False,
+                )
+            summaries.append(self._summary_from_file(resolved=resolved))
+        return summaries
+
+    def _summary_from_file(self, *, resolved: _ResolvedNote) -> NoteSummary:
+        parsed, title = self._parsed_and_title_from_file(
+            path=resolved.path,
+            fallback_title=resolved.filename.removesuffix(".md"),
+        )
         metadata = parsed.metadata
-        impacted_repos = metadata.get("impacted_repos")
-        safe_impacted = impacted_repos if isinstance(impacted_repos, list) else []
-        impacted = [str(repo) for repo in safe_impacted]
-
+        impacted = self._safe_impacted_repos(metadata.get("impacted_repos"))
+        canonical_repo = str(metadata.get("canonical_repo", resolved.canonical_repo))
         return NoteSummary(
-            slug=slug,
-            title=self._title_from_content_or_slug(slug=slug, content=raw),
+            note_id=resolved.note_id,
+            canonical_repo=canonical_repo,
+            filename=resolved.filename,
+            title=title,
             owner=str(metadata.get("owner", "")),
             status=str(metadata.get("status", "")),
             breaking_change_risk=str(metadata.get("breaking_change_risk", "")),
-            canonical_repo=str(metadata.get("canonical_repo", "")),
             impacted_repos=impacted,
             last_reviewed=str(metadata.get("last_reviewed", "")),
         )
 
-    @staticmethod
-    def _title_from_content_or_slug(slug: str, content: str) -> str:
-        for line in content.splitlines():
-            if line.startswith("# "):
-                return line.removeprefix("# ").strip()
-        return slug
+    def _document_from_file(self, *, resolved: _ResolvedNote) -> NoteDocument:
+        parsed, title = self._parsed_and_title_from_file(
+            path=resolved.path,
+            fallback_title=resolved.filename.removesuffix(".md"),
+        )
+        metadata = parsed.metadata
+        canonical_repo = str(metadata.get("canonical_repo", resolved.canonical_repo))
+        return NoteDocument(
+            note_id=resolved.note_id,
+            canonical_repo=canonical_repo,
+            filename=resolved.filename,
+            title=title,
+            metadata=metadata,
+            content=parsed.body,
+        )
+
+    def _resolve_note(self, note_id: str) -> _ResolvedNote:
+        cleaned = note_id.strip()
+        if not cleaned:
+            raise ValueError("Missing note identifier")
+
+        if "/" in cleaned:
+            repo_name, filename = cleaned.split("/", 1)
+            safe_repo = self._validated_repo(repo_name)
+            safe_filename = self._validated_filename(filename)
+            return _ResolvedNote(
+                note_id=self.note_id_from_parts(repo_name=safe_repo, filename=safe_filename),
+                canonical_repo=safe_repo,
+                filename=safe_filename,
+                path=self.base_dir / safe_repo / safe_filename,
+                legacy=False,
+            )
+
+        if not _LEGACY_NOTE_ID_PATTERN.fullmatch(cleaned):
+            raise ValueError("Invalid legacy note identifier")
+        return _ResolvedNote(
+            note_id=cleaned,
+            canonical_repo=cleaned,
+            filename="README.md",
+            path=self.base_dir / cleaned / "README.md",
+            legacy=True,
+        )
 
     @staticmethod
-    def _metadata_from_payload(payload: NoteWrite) -> dict[str, object]:
+    def _validated_repo(repo_name: str) -> str:
+        cleaned = repo_name.strip()
+        if "/" in cleaned or "\\" in cleaned or ".." in cleaned:
+            raise ValueError("Invalid canonical repo name")
+        if not _REPO_PATTERN.fullmatch(cleaned):
+            raise ValueError(
+                "Invalid canonical repo name. Use letters, numbers, dots, underscores, or hyphens."
+            )
+        return cleaned
+
+    @staticmethod
+    def _validated_filename(filename: str) -> str:
+        cleaned = filename.strip()
+        if not cleaned:
+            raise ValueError("Filename is required")
+        if "/" in cleaned or "\\" in cleaned or ".." in cleaned:
+            raise ValueError("Invalid filename")
+        if cleaned.endswith(".MD"):
+            cleaned = f"{cleaned[:-3]}.md"
+        if not cleaned.endswith(".md"):
+            cleaned = f"{cleaned}.md"
+        cleaned = cleaned.replace(" ", "-")
+        if not _FILENAME_PATTERN.fullmatch(cleaned):
+            raise ValueError(
+                "Invalid filename. Use letters, numbers, dots, underscores, "
+                "hyphens, and .md extension."
+            )
+        return cleaned
+
+    @staticmethod
+    def _metadata_from_payload(*, payload: NoteWrite) -> dict[str, object]:
         return {
+            "title": payload.title,
             "owner": payload.owner,
             "status": payload.status,
             "breaking_change_risk": payload.breaking_change_risk,
@@ -178,8 +313,20 @@ class NotesStore:
         }
 
     @staticmethod
-    def _validated_slug(slug: str) -> str:
-        candidate = slug.strip().lower()
-        if not _SLUG_PATTERN.fullmatch(candidate):
-            raise ValueError("Invalid slug. Use lowercase letters, numbers, and hyphens only.")
-        return candidate
+    def _safe_impacted_repos(value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value]
+
+    @staticmethod
+    def _parsed_and_title_from_file(*, path: Path, fallback_title: str):
+        raw = path.read_text(encoding="utf-8")
+        parsed = parse_markdown_with_frontmatter(raw)
+
+        metadata_title = parsed.metadata.get("title")
+        if isinstance(metadata_title, str) and metadata_title.strip():
+            return parsed, metadata_title.strip()
+        for line in parsed.body.splitlines():
+            if line.startswith("# "):
+                return parsed, line.removeprefix("# ").strip()
+        return parsed, fallback_title
