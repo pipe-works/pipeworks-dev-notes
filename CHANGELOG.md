@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.2...pipeworks-dev-notes-v0.1.3) (2026-03-05)
+
+
+### Features
+
+* **workspace:** scaffold API, directory tree, and workspace management ([#7](https://github.com/pipe-works/pipeworks-dev-notes/issues/7)) ([b58074a](https://github.com/pipe-works/pipeworks-dev-notes/commit/b58074aa4cd700faf96139bcc02b208d56900515))
+
 ## [0.1.2](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.1...pipeworks-dev-notes-v0.1.2) (2026-03-05)
 
 
