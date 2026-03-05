@@ -6,7 +6,7 @@ const themeToggle = document.querySelector("#theme-toggle");
 const saveNoteButton = document.querySelector("#save-note");
 const newNoteButton = document.querySelector("#new-note");
 
-const fieldSlug = document.querySelector("#field-slug");
+const fieldFilename = document.querySelector("#field-filename");
 const fieldTitle = document.querySelector("#field-title");
 const fieldOwner = document.querySelector("#field-owner");
 const fieldStatus = document.querySelector("#field-status");
@@ -16,8 +16,10 @@ const fieldReviewed = document.querySelector("#field-reviewed");
 const fieldImpacted = document.querySelector("#field-impacted");
 const fieldContent = document.querySelector("#field-content");
 
-let activeSlug = null;
+let activeNoteId = null;
 let isSaving = false;
+let canonicalRepos = [];
+let filenameManuallyEdited = false;
 
 function setStatus(text) {
   statusText.textContent = text;
@@ -39,6 +41,8 @@ function toggleTheme() {
 
 function formatMeta(note) {
   return [
+    `Note ID: ${note.note_id || "(not set)"}`,
+    `Filename: ${note.filename || "(not set)"}`,
     `Owner: ${note.owner || "(not set)"}`,
     `Status: ${note.status || "(not set)"}`,
     `Risk: ${note.breaking_change_risk || "(not set)"}`,
@@ -48,24 +52,55 @@ function formatMeta(note) {
   ].join(" | ");
 }
 
-function setSlugReadOnly(value) {
-  fieldSlug.disabled = value;
-}
-
 function clearForm() {
-  activeSlug = null;
+  activeNoteId = null;
+  filenameManuallyEdited = false;
   noteTitle.textContent = "New Note";
   noteMeta.textContent = "Create a note and save.";
-  fieldSlug.value = "";
+  fieldFilename.value = "";
   fieldTitle.value = "";
   fieldOwner.value = "";
   fieldStatus.value = "draft";
   fieldRisk.value = "medium";
-  fieldCanonical.value = "";
   fieldReviewed.value = "";
   fieldImpacted.value = "";
   fieldContent.value = "";
-  setSlugReadOnly(false);
+  if (canonicalRepos.length) {
+    fieldCanonical.value = canonicalRepos[0];
+  } else {
+    fieldCanonical.value = "";
+  }
+  setIdentityFieldsReadOnly(false);
+}
+
+function setIdentityFieldsReadOnly(value) {
+  fieldCanonical.disabled = value;
+  fieldFilename.disabled = value;
+}
+
+function slugFromText(value) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function ensureMdExtension(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`;
+}
+
+function syncFilenameFromTitle() {
+  if (filenameManuallyEdited || activeNoteId) {
+    return;
+  }
+  const slug = slugFromText(fieldTitle.value);
+  fieldFilename.value = slug ? `${slug}.md` : "";
 }
 
 function payloadFromForm() {
@@ -75,7 +110,7 @@ function payloadFromForm() {
     .filter(Boolean);
 
   return {
-    slug: fieldSlug.value.trim() || null,
+    filename: ensureMdExtension(fieldFilename.value) || null,
     title: fieldTitle.value.trim(),
     content: fieldContent.value,
     owner: fieldOwner.value.trim(),
@@ -91,17 +126,19 @@ function fillFormFromNote(note) {
   const metadata = note.metadata || {};
   const impacted = Array.isArray(metadata.impacted_repos) ? metadata.impacted_repos : [];
 
-  fieldSlug.value = note.slug;
+  fieldFilename.value = note.filename || "";
   fieldTitle.value = note.title;
   fieldOwner.value = String(metadata.owner ?? "");
   fieldStatus.value = String(metadata.status ?? "draft");
   fieldRisk.value = String(metadata.breaking_change_risk ?? "medium");
-  fieldCanonical.value = String(metadata.canonical_repo ?? "");
+  fieldCanonical.value = String(note.canonical_repo ?? metadata.canonical_repo ?? "");
   fieldReviewed.value = String(metadata.last_reviewed ?? "");
   fieldImpacted.value = impacted.map((value) => String(value)).join(", ");
   fieldContent.value = note.content || "";
   noteTitle.textContent = note.title;
   noteMeta.textContent = formatMeta({
+    note_id: note.note_id,
+    filename: note.filename,
     owner: fieldOwner.value,
     status: fieldStatus.value,
     breaking_change_risk: fieldRisk.value,
@@ -109,7 +146,7 @@ function fillFormFromNote(note) {
     impacted_repos: impacted.map((value) => String(value)),
     last_reviewed: fieldReviewed.value,
   });
-  setSlugReadOnly(true);
+  setIdentityFieldsReadOnly(true);
 }
 
 function renderList(notes) {
@@ -126,15 +163,22 @@ function renderList(notes) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "note-link";
-    if (note.slug === activeSlug) {
+    if (note.note_id === activeNoteId) {
       button.classList.add("is-active");
     }
-    button.dataset.slug = note.slug;
-    button.textContent = note.title;
-    button.addEventListener("click", () => loadNote(note.slug));
+    button.dataset.noteId = note.note_id;
+    button.textContent = `${note.title} (${note.canonical_repo}/${note.filename})`;
+    button.addEventListener("click", () => loadNote(note.note_id));
     li.appendChild(button);
     noteList.appendChild(li);
   }
+}
+
+function encodeNoteId(noteId) {
+  return noteId
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 async function fetchJson(path, init = {}) {
@@ -158,13 +202,25 @@ async function loadNotes() {
   return notes;
 }
 
-async function loadNote(slug) {
-  setStatus(`Loading ${slug}...`);
-  const note = await fetchJson(`/api/notes/${slug}`);
-  activeSlug = slug;
+async function loadRepos() {
+  canonicalRepos = await fetchJson("/api/repos");
+  fieldCanonical.innerHTML = "";
+  for (const repoName of canonicalRepos) {
+    const option = document.createElement("option");
+    option.value = repoName;
+    option.textContent = repoName;
+    fieldCanonical.appendChild(option);
+  }
+}
+
+async function loadNote(noteId) {
+  setStatus(`Loading ${noteId}...`);
+  const note = await fetchJson(`/api/notes/${encodeNoteId(noteId)}`);
+  activeNoteId = note.note_id;
+  filenameManuallyEdited = true;
   fillFormFromNote(note);
   await loadNotes();
-  setStatus(`Loaded ${slug}`);
+  setStatus(`Loaded ${noteId}`);
 }
 
 async function saveCurrentNote() {
@@ -177,19 +233,27 @@ async function saveCurrentNote() {
     setStatus("Title is required.");
     return;
   }
+  if (!payload.canonical_repo) {
+    setStatus("Canonical repo is required.");
+    return;
+  }
+  if (!payload.filename) {
+    setStatus("Filename is required.");
+    return;
+  }
 
   isSaving = true;
   saveNoteButton.disabled = true;
   try {
-    if (activeSlug) {
-      setStatus(`Updating ${activeSlug}...`);
-      await fetchJson(`/api/notes/${activeSlug}`, {
+    if (activeNoteId) {
+      setStatus(`Updating ${activeNoteId}...`);
+      await fetchJson(`/api/notes/${encodeNoteId(activeNoteId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      await loadNote(activeSlug);
-      setStatus(`Updated ${activeSlug}`);
+      await loadNote(activeNoteId);
+      setStatus(`Updated ${activeNoteId}`);
     } else {
       setStatus("Creating note...");
       const created = await fetchJson("/api/notes", {
@@ -197,8 +261,8 @@ async function saveCurrentNote() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      await loadNote(created.slug);
-      setStatus(`Created ${created.slug}`);
+      await loadNote(created.note_id);
+      setStatus(`Created ${created.note_id}`);
     }
   } catch (error) {
     setStatus(`Save failed: ${error}`);
@@ -220,13 +284,17 @@ async function init() {
   themeToggle.addEventListener("click", toggleTheme);
   saveNoteButton.addEventListener("click", saveCurrentNote);
   newNoteButton.addEventListener("click", startNewNote);
-
-  clearForm();
+  fieldTitle.addEventListener("input", syncFilenameFromTitle);
+  fieldFilename.addEventListener("input", () => {
+    filenameManuallyEdited = true;
+  });
 
   try {
+    await loadRepos();
+    clearForm();
     const notes = await loadNotes();
     if (notes.length) {
-      await loadNote(notes[0].slug);
+      await loadNote(notes[0].note_id);
     } else {
       setStatus("Ready");
     }

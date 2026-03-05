@@ -20,6 +20,7 @@ Frontend implementation work must follow the existing style guide at:
 - `src/pipeworks_dev_notes/`: package source code.
 - `src/pipeworks_dev_notes/web/static/`: app frontend shell (HTML/CSS/JS).
 - `tests/`: pytest suite.
+- `tools/shared_working/`: shared-folder maintenance scripts (scaffold/link/index/doctor).
 - `_working/`: local untracked notes, scratch docs, and planning artifacts.
 
 ## Quick Start
@@ -50,9 +51,12 @@ Initial vertical slice is in place:
 - Pre-commit hooks
 - FastAPI backend endpoints:
   - `GET /health`
+  - `GET /api/repos`
   - `GET /api/notes`
-  - `GET /api/notes/{slug}`
+  - `GET /api/notes/{note_id}`
   - `POST /api/notes`
-  - `PUT /api/notes/{slug}`
+  - `PUT /api/notes/{note_id}`
 - Static frontend served at `/`
+- Canonical storage model: `_working_shared/<canonical_repo>/<filename>.md`
+- Legacy read compatibility: `_working_shared/<legacy_dir>/README.md` is still readable
 - Pytest + coverage configuration and API/store tests

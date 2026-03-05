@@ -33,11 +33,10 @@ def parse_markdown_with_frontmatter(content: str) -> ParsedMarkdown:
 
 def render_markdown_with_frontmatter(
     *,
-    title: str,
     content: str,
     metadata: dict[str, object],
 ) -> str:
-    """Render markdown with YAML front matter and heading."""
+    """Render markdown with YAML front matter and raw body content."""
 
     metadata_block = yaml.safe_dump(
         metadata,
@@ -45,5 +44,7 @@ def render_markdown_with_frontmatter(
         default_flow_style=False,
         allow_unicode=False,
     ).strip()
-    body = content.strip()
-    return f"---\n{metadata_block}\n---\n# {title.strip()}\n\n{body}\n"
+    body = content
+    if not body.endswith("\n"):
+        body = f"{body}\n"
+    return f"---\n{metadata_block}\n---\n\n{body}"
