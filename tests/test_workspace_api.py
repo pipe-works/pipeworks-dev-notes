@@ -121,3 +121,163 @@ def test_workspace_index_endpoint(tmp_path: Path, monkeypatch) -> None:
     assert data["applied"] is True
     assert "note_count" in data
     assert "repo_count" in data
+
+
+def test_dirlist_endpoint(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    repo = shared / "my_repo"
+    repo.mkdir(parents=True)
+    (repo / "subdir").mkdir()
+    (repo / ".hidden").mkdir()
+    (repo / "notes.md").write_text("hello", encoding="utf-8")
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/dirlist/my_repo")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dirs"] == ["subdir"]
+    assert data["files"] == ["notes.md"]
+
+
+def test_dirlist_not_found(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/dirlist/nonexistent")
+    assert response.status_code == 404
+
+
+def test_file_read_endpoint(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    repo = shared / "my_repo"
+    repo.mkdir(parents=True)
+    (repo / "test.md").write_text("# Hello\nWorld", encoding="utf-8")
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/file/my_repo/test.md")
+    assert response.status_code == 200
+    assert response.text == "# Hello\nWorld"
+
+
+def test_file_read_not_found(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/file/nope.md")
+    assert response.status_code == 404
+
+
+def test_file_write_endpoint(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    repo = shared / "my_repo"
+    repo.mkdir(parents=True)
+    (repo / "test.md").write_text("old", encoding="utf-8")
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.put(
+        "/api/workspace/file/my_repo/test.md",
+        content="# Updated\nNew content",
+        headers={"Content-Type": "text/plain"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert (repo / "test.md").read_text(encoding="utf-8") == "# Updated\nNew content"
+
+
+def test_file_write_no_parent(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.put(
+        "/api/workspace/file/nope/test.md",
+        content="data",
+        headers={"Content-Type": "text/plain"},
+    )
+    assert response.status_code == 404
+
+
+def test_image_endpoint(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    repo = shared / "my_repo"
+    repo.mkdir(parents=True)
+    (repo / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/image/my_repo/pic.png")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+
+
+def test_image_not_found(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/image/nope.png")
+    assert response.status_code == 404
+
+
+def test_image_non_image_rejected(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "test.txt").write_text("hello", encoding="utf-8")
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/image/test.txt")
+    assert response.status_code == 400
+
+
+def test_index_content_endpoint(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "INDEX.md").write_text("# Index\nHello", encoding="utf-8")
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/index/content")
+    assert response.status_code == 200
+    assert "# Index" in response.text
+
+
+def test_index_content_not_found(tmp_path: Path, monkeypatch) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PIPEWORKS_DEV_NOTES_SHARED_DIR", str(shared))
+
+    client = TestClient(create_app())
+    response = client.get("/api/workspace/index/content")
+    assert response.status_code == 404
