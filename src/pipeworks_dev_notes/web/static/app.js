@@ -15,7 +15,11 @@ const previewModal = document.querySelector("#preview-modal");
 const previewClose = document.querySelector("#preview-close");
 const previewContent = document.querySelector("#preview-content");
 const previewBackdrop = previewModal ? previewModal.querySelector(".modal__backdrop") : null;
+const previewToc = document.querySelector("#preview-toc");
 const formatTablesBtn = document.querySelector("#format-tables-btn");
+const fixImagesBtn = document.querySelector("#fix-images-btn");
+const indexView = document.querySelector("#index-view");
+const noteForm = document.querySelector("#note-form");
 
 const metaNoteId = document.querySelector("#meta-note-id");
 const metaFilename = document.querySelector("#meta-filename");
@@ -44,6 +48,7 @@ let workspaceRepos = { discovered: [], scaffolded: [] };
 let filenameManuallyEdited = false;
 let savedSnapshot = null;
 let selectedImpactedRepos = [];
+let activeFilePath = null;
 const COLLAPSED_KEY = "pipeworks-dev-notes-collapsed";
 
 function getCollapsedRepos() {
@@ -159,6 +164,9 @@ function onImpactedSelectChange() {
 /* ── Unsaved Changes Tracking ───────────────────────────────────── */
 
 function currentFormSnapshot() {
+  if (activeFilePath) {
+    return JSON.stringify({ content: fieldContent.value });
+  }
   return JSON.stringify({
     title: fieldTitle.value,
     filename: fieldFilename.value,
@@ -291,7 +299,50 @@ function onFormatTables() {
   }
 }
 
+/* ── Fix Images ────────────────────────────────────────────────── */
+
+function fixImageLinks(text) {
+  // Convert Obsidian ![[file.png]] to standard ![file.png](file.png)
+  return text.replace(/!\[\[([^\]]+\.(png|jpg|jpeg|gif|webp|svg))\]\]/gi, "![$1]($1)");
+}
+
+function onFixImages() {
+  const before = fieldContent.value;
+  const after = fixImageLinks(before);
+  if (after !== before) {
+    fieldContent.value = after;
+    checkUnsavedChanges();
+    const count = (before.match(/!\[\[/g) || []).length;
+    setStatus(`Fixed ${count} image link(s).`);
+  } else {
+    setStatus("No Obsidian-style image links to fix.");
+  }
+}
+
 /* ── Markdown Preview ──────────────────────────────────────────── */
+
+function currentImageBase() {
+  if (activeFilePath) {
+    const parts = activeFilePath.split("/");
+    parts.pop();
+    return parts.join("/");
+  }
+  if (activeNoteId) {
+    const parts = activeNoteId.split("/");
+    parts.pop();
+    return parts.join("/");
+  }
+  return "";
+}
+
+function resolveImageSrc(src) {
+  if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("/")) {
+    return src;
+  }
+  const base = currentImageBase();
+  const path = base ? `${base}/${src}` : src;
+  return `/api/workspace/image/${encodeNoteId(path)}`;
+}
 
 function escapeHtml(text) {
   const div = document.createElement("div");
@@ -333,10 +384,10 @@ function renderMarkdown(src) {
   // Process line-by-line to handle tables before escaping
   const srcLines = src.split("\n");
   const processed = [];
+  const tables = [];
   let i = 0;
 
   while (i < srcLines.length) {
-    // Check for table
     if (
       srcLines[i].includes("|") &&
       i + 1 < srcLines.length &&
@@ -344,10 +395,9 @@ function renderMarkdown(src) {
     ) {
       const tableResult = renderMarkdownTable(srcLines, i);
       if (tableResult) {
-        // Escape cell contents within the already-built table
-        processed.push("\x00TABLE\x00" + processed.length);
-        processed._tables = processed._tables || [];
-        processed._tables.push(tableResult.html);
+        const placeholder = `MKTBL${tables.length}MKTBL`;
+        processed.push(placeholder);
+        tables.push(tableResult.html);
         i = tableResult.endIdx;
         continue;
       }
@@ -356,12 +406,11 @@ function renderMarkdown(src) {
     i++;
   }
 
-  const tables = processed._tables || [];
   let html = escapeHtml(processed.join("\n"));
 
-  // Restore tables (they were replaced with placeholders)
+  // Restore tables (placeholders survive escapeHtml since they're plain alphanumeric)
   for (let t = 0; t < tables.length; t++) {
-    html = html.replace(`\x00TABLE\x00${t}`, tables[t]);
+    html = html.replace(`MKTBL${t}MKTBL`, tables[t]);
   }
 
   // Fenced code blocks
@@ -391,6 +440,18 @@ function renderMarkdown(src) {
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>");
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+  // Images: standard ![alt](src)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, src) => {
+    const resolved = resolveImageSrc(src);
+    return `<img src="${resolved}" alt="${alt}" class="markdown-img">`;
+  });
+
+  // Images: Obsidian ![[file.png]]
+  html = html.replace(/!\[\[([^\]]+\.(png|jpg|jpeg|gif|webp|svg))\]\]/gi, (_m, file) => {
+    const resolved = resolveImageSrc(file);
+    return `<img src="${resolved}" alt="${file}" class="markdown-img">`;
+  });
 
   // Links
   html = html.replace(
@@ -432,23 +493,149 @@ function renderMarkdown(src) {
   return html;
 }
 
+function buildToc(container) {
+  previewToc.innerHTML = "";
+  const headings = container.querySelectorAll("h1, h2, h3, h4");
+  if (!headings.length) return;
+
+  const list = document.createElement("ul");
+  list.className = "toc-list";
+
+  headings.forEach((heading, idx) => {
+    const id = `preview-heading-${idx}`;
+    heading.id = id;
+
+    const li = document.createElement("li");
+    const link = document.createElement("a");
+    link.className = `toc-link toc-link--${heading.tagName.toLowerCase()}`;
+    link.textContent = heading.textContent;
+    link.addEventListener("click", () => {
+      heading.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    li.appendChild(link);
+    list.appendChild(li);
+  });
+
+  previewToc.appendChild(list);
+}
+
 function openPreview() {
   previewContent.innerHTML = renderMarkdown(fieldContent.value);
+  buildToc(previewContent);
   previewModal.hidden = false;
 }
 
 function closePreview() {
   previewModal.hidden = true;
   previewContent.innerHTML = "";
+  previewToc.innerHTML = "";
 }
+
+/* ── Index / Editor View Toggle ─────────────────────────────────── */
+
+function showIndexView() {
+  indexView.hidden = false;
+  noteMetaDetails.style.display = "none";
+  noteForm.style.display = "none";
+  saveNoteButton.style.display = "none";
+  closeNoteButton.style.display = "none";
+  noteTitle.textContent = "Shared Notes Index";
+}
+
+function showEditorView() {
+  indexView.hidden = true;
+  noteMetaDetails.style.display = "";
+  noteForm.style.display = "";
+  noteFieldsDetails.style.display = "";
+  saveNoteButton.style.display = "";
+}
+
+function showFileReadOnlyView(title) {
+  indexView.hidden = false;
+  noteMetaDetails.style.display = "none";
+  noteForm.style.display = "none";
+  saveNoteButton.style.display = "none";
+  closeNoteButton.style.display = "";
+  noteTitle.textContent = title;
+}
+
+function showFileEditorView(title) {
+  indexView.hidden = true;
+  noteMetaDetails.style.display = "none";
+  noteForm.style.display = "";
+  noteFieldsDetails.style.display = "none";
+  saveNoteButton.style.display = "";
+  closeNoteButton.style.display = "";
+  noteTitle.textContent = title;
+}
+
+async function loadFileContent(filePath) {
+  const fileName = filePath.split("/").pop();
+  setStatus(`Loading ${filePath}...`);
+  try {
+    const resp = await fetch(
+      `/api/workspace/file/${encodeNoteId(filePath)}`
+    );
+    if (!resp.ok) {
+      showFileReadOnlyView(fileName);
+      indexView.innerHTML = "<p>Failed to load file.</p>";
+      setStatus(`Failed to load ${filePath}`);
+      return;
+    }
+    const text = await resp.text();
+
+    if (filePath.endsWith(".md")) {
+      activeNoteId = null;
+      activeFilePath = filePath;
+      showFileEditorView(fileName);
+      fieldContent.value = text;
+      savedSnapshot = null;
+      takeSavedSnapshot();
+      setStatus(`Editing ${filePath}`);
+    } else {
+      activeFilePath = null;
+      showFileReadOnlyView(fileName);
+      indexView.innerHTML = `<pre><code>${escapeHtml(text)}</code></pre>`;
+      setStatus(`Viewing ${filePath} (read-only)`);
+    }
+  } catch {
+    showFileReadOnlyView(fileName);
+    indexView.innerHTML = "<p>Failed to load file.</p>";
+    setStatus(`Failed to load ${filePath}`);
+  }
+}
+
+async function loadIndexContent() {
+  try {
+    const resp = await fetch("/api/workspace/index/content");
+    if (!resp.ok) {
+      indexView.innerHTML = "<p>No INDEX.md found. Click Rebuild Index to generate.</p>";
+      return;
+    }
+    const markdown = await resp.text();
+    indexView.innerHTML = renderMarkdown(markdown);
+  } catch {
+    indexView.innerHTML = "<p>Failed to load INDEX.md</p>";
+  }
+}
+
+indexView.addEventListener("click", (e) => {
+  const link = e.target.closest("a");
+  if (!link) return;
+  const href = link.getAttribute("href");
+  if (href && href.endsWith(".md") && !href.startsWith("http")) {
+    e.preventDefault();
+    loadNote(href);
+  }
+});
 
 /* ── Form Operations ────────────────────────────────────────────── */
 
-function clearForm() {
+function resetFormFields() {
   activeNoteId = null;
+  activeFilePath = null;
   filenameManuallyEdited = false;
   savedSnapshot = null;
-  noteTitle.textContent = "New Note";
   clearMetaTable();
   noteMetaDetails.open = false;
   fieldFilename.value = "";
@@ -468,7 +655,12 @@ function clearForm() {
   }
   setIdentityFieldsReadOnly(false);
   saveNoteButton.classList.remove("is-modified");
-  closeNoteButton.style.display = "none";
+}
+
+function clearForm() {
+  resetFormFields();
+  showIndexView();
+  loadIndexContent();
 }
 
 function setIdentityFieldsReadOnly(value) {
@@ -516,6 +708,7 @@ function payloadFromForm() {
 }
 
 function fillFormFromNote(note) {
+  showEditorView();
   const metadata = note.metadata || {};
   const impacted = Array.isArray(metadata.impacted_repos) ? metadata.impacted_repos : [];
 
@@ -550,7 +743,82 @@ function fillFormFromNote(note) {
   takeSavedSnapshot();
 }
 
-function renderTree(notes) {
+function createDirNode(dirPath, dirName) {
+  const li = document.createElement("li");
+  li.className = "repo-group collapsed";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "repo-toggle repo-toggle--sub";
+  toggle.textContent = `\u25b6 \ud83d\udcc1 ${dirName}`;
+
+  const childList = document.createElement("ul");
+  childList.className = "repo-notes";
+  let loaded = false;
+
+  toggle.addEventListener("click", async () => {
+    const nowCollapsed = !li.classList.contains("collapsed");
+    li.classList.toggle("collapsed");
+    toggle.textContent = `${nowCollapsed ? "\u25b6" : "\u25bc"} \ud83d\udcc1 ${dirName}`;
+
+    if (!loaded && !nowCollapsed) {
+      loaded = true;
+      try {
+        const listing = await fetchJson(
+          `/api/workspace/dirlist/${encodeNoteId(dirPath)}`
+        );
+        for (const sub of listing.dirs) {
+          childList.appendChild(createDirNode(`${dirPath}/${sub}`, sub));
+        }
+        const imageExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
+        for (const file of listing.files) {
+          const fli = document.createElement("li");
+          const ext = file.substring(file.lastIndexOf(".")).toLowerCase();
+          const fullFilePath = `${dirPath}/${file}`;
+
+          if (imageExts.includes(ext)) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "note-link note-link--file note-link--image";
+            const label = document.createElement("span");
+            label.textContent = file;
+            const img = document.createElement("img");
+            img.src = `/api/workspace/image/${encodeNoteId(fullFilePath)}`;
+            img.alt = file;
+            img.className = "tree-thumb";
+            wrapper.appendChild(label);
+            wrapper.appendChild(img);
+            fli.appendChild(wrapper);
+          } else {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "note-link note-link--file";
+            btn.textContent = file;
+            btn.addEventListener("click", () => loadFileContent(fullFilePath));
+            fli.appendChild(btn);
+          }
+          childList.appendChild(fli);
+        }
+        if (!listing.dirs.length && !listing.files.length) {
+          const empty = document.createElement("li");
+          empty.className = "note-link note-link--file";
+          empty.textContent = "(empty)";
+          childList.appendChild(empty);
+        }
+      } catch {
+        const err = document.createElement("li");
+        err.className = "note-link note-link--file";
+        err.textContent = "(failed to load)";
+        childList.appendChild(err);
+      }
+    }
+  });
+
+  li.appendChild(toggle);
+  li.appendChild(childList);
+  return li;
+}
+
+async function renderTree(notes) {
   noteList.innerHTML = "";
 
   const allRepos = new Set([
@@ -574,11 +842,27 @@ function renderTree(notes) {
     notesByRepo[note.canonical_repo].push(note);
   }
 
+  // Fetch top-level dir listings for all repos in parallel
+  const dirlistByRepo = {};
+  await Promise.all(
+    sortedRepos.map(async (repo) => {
+      try {
+        dirlistByRepo[repo] = await fetchJson(
+          `/api/workspace/dirlist/${encodeNoteId(repo)}`
+        );
+      } catch {
+        dirlistByRepo[repo] = { dirs: [], files: [] };
+      }
+    })
+  );
+
   const collapsed = getCollapsedRepos();
 
   for (const repo of sortedRepos) {
     const repoNotes = notesByRepo[repo] || [];
+    const dirlist = dirlistByRepo[repo] || { dirs: [], files: [] };
     const isCollapsed = collapsed[repo] === true;
+    const itemCount = repoNotes.length + dirlist.dirs.length;
 
     const group = document.createElement("li");
     group.className = "repo-group" + (isCollapsed ? " collapsed" : "");
@@ -586,18 +870,22 @@ function renderTree(notes) {
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "repo-toggle";
-    const count = repoNotes.length;
-    toggle.textContent = `${isCollapsed ? "\u25b6" : "\u25bc"} ${repo} (${count})`;
+    toggle.textContent = `${isCollapsed ? "\u25b6" : "\u25bc"} ${repo} (${itemCount})`;
     toggle.addEventListener("click", () => {
       const nowCollapsed = !group.classList.contains("collapsed");
       group.classList.toggle("collapsed");
       setCollapsedRepo(repo, nowCollapsed);
-      toggle.textContent = `${nowCollapsed ? "\u25b6" : "\u25bc"} ${repo} (${count})`;
+      toggle.textContent = `${nowCollapsed ? "\u25b6" : "\u25bc"} ${repo} (${itemCount})`;
     });
     group.appendChild(toggle);
 
-    const noteContainer = document.createElement("ul");
-    noteContainer.className = "repo-notes";
+    const itemContainer = document.createElement("ul");
+    itemContainer.className = "repo-notes";
+
+    for (const dir of dirlist.dirs) {
+      itemContainer.appendChild(createDirNode(`${repo}/${dir}`, dir));
+    }
+
     for (const note of repoNotes) {
       const li = document.createElement("li");
       const button = document.createElement("button");
@@ -607,12 +895,12 @@ function renderTree(notes) {
         button.classList.add("is-active");
       }
       button.dataset.noteId = note.note_id;
-      button.textContent = `${note.title} (${note.filename})`;
+      button.textContent = note.title;
       button.addEventListener("click", () => loadNote(note.note_id));
       li.appendChild(button);
-      noteContainer.appendChild(li);
+      itemContainer.appendChild(li);
     }
-    group.appendChild(noteContainer);
+    group.appendChild(itemContainer);
     noteList.appendChild(group);
   }
 }
@@ -686,6 +974,36 @@ async function saveCurrentNote() {
     return;
   }
 
+  // File edit mode — save raw content back to file
+  if (activeFilePath) {
+    isSaving = true;
+    saveNoteButton.disabled = true;
+    try {
+      setStatus(`Saving ${activeFilePath}...`);
+      const resp = await fetch(
+        `/api/workspace/file/${encodeNoteId(activeFilePath)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "text/plain" },
+          body: fieldContent.value,
+        }
+      );
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      takeSavedSnapshot();
+      setStatus(`Saved ${activeFilePath}`);
+    } catch (error) {
+      setStatus(`Save failed: ${error}`);
+    } finally {
+      isSaving = false;
+      saveNoteButton.disabled = false;
+    }
+    return;
+  }
+
+  // Note edit mode
   const payload = payloadFromForm();
   if (!payload.title) {
     setStatus("Title is required.");
@@ -762,13 +1080,19 @@ async function rebuildIndex() {
     setStatus(
       `INDEX.md rebuilt: ${result.note_count} note(s) across ${result.repo_count} repo(s).`
     );
+    if (!indexView.hidden) {
+      await loadIndexContent();
+    }
   } catch (error) {
     setStatus(`Rebuild index failed: ${error}`);
   }
 }
 
 async function startNewNote() {
-  clearForm();
+  resetFormFields();
+  showEditorView();
+  noteTitle.textContent = "New Note";
+  closeNoteButton.style.display = "";
   noteMetaDetails.open = false;
   takeSavedSnapshot();
   await loadNotes();
@@ -789,6 +1113,7 @@ async function init() {
     rebuildIndexButton.addEventListener("click", rebuildIndex);
   }
   impactedSelect.addEventListener("change", onImpactedSelectChange);
+  if (fixImagesBtn) fixImagesBtn.addEventListener("click", onFixImages);
   if (formatTablesBtn) formatTablesBtn.addEventListener("click", onFormatTables);
   if (previewBtn) previewBtn.addEventListener("click", openPreview);
   if (previewClose) previewClose.addEventListener("click", closePreview);
@@ -812,8 +1137,6 @@ async function init() {
     el.addEventListener("input", checkUnsavedChanges);
   }
 
-  closeNoteButton.style.display = "none";
-
   try {
     fetchJson("/api/version")
       .then((data) => {
@@ -822,13 +1145,11 @@ async function init() {
       .catch(() => {});
     await loadWorkspaceRepos();
     await loadRepos();
-    clearForm();
-    const notes = await loadNotes();
-    if (notes.length) {
-      await loadNote(notes[0].note_id);
-    } else {
-      setStatus("Ready");
-    }
+    resetFormFields();
+    showIndexView();
+    await loadIndexContent();
+    await loadNotes();
+    setStatus("Ready");
   } catch (error) {
     setStatus(`Failed to load notes: ${error}`);
   }

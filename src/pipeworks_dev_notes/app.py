@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from pipeworks_dev_notes import __version__
@@ -113,6 +113,80 @@ def create_app() -> FastAPI:
             healthy=result.healthy,
             unhealthy=result.unhealthy,
         )
+
+    @app.get("/api/workspace/dirlist/{dir_path:path}")
+    async def workspace_dirlist(dir_path: str) -> dict[str, list[str]]:
+        base = shared_dir() / dir_path
+        if not base.is_dir():
+            raise HTTPException(status_code=404, detail="Directory not found")
+        dirs: list[str] = []
+        files: list[str] = []
+        for item in sorted(base.iterdir(), key=lambda p: p.name):
+            if item.name.startswith("."):
+                continue
+            if item.is_dir():
+                dirs.append(item.name)
+            elif item.is_file():
+                files.append(item.name)
+        return {"dirs": dirs, "files": files}
+
+    def _safe_shared_path(file_path: str) -> Path:
+        target = shared_dir() / file_path
+        try:
+            target.resolve().relative_to(shared_dir().resolve())
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="Access denied") from exc
+        return target
+
+    @app.get("/api/workspace/file/{file_path:path}")
+    async def workspace_file_read(file_path: str) -> PlainTextResponse:
+        target = _safe_shared_path(file_path)
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        content = target.read_text(encoding="utf-8", errors="replace")
+        return PlainTextResponse(content)
+
+    @app.put("/api/workspace/file/{file_path:path}")
+    async def workspace_file_write(
+        file_path: str,
+        request: Request,
+    ) -> dict[str, str]:
+        target = _safe_shared_path(file_path)
+        if not target.parent.is_dir():
+            raise HTTPException(status_code=404, detail="Parent directory not found")
+        body = await request.body()
+        target.write_text(body.decode("utf-8"), encoding="utf-8")
+        return {"status": "ok", "path": file_path}
+
+    _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+    _MEDIA_TYPES = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+    }
+
+    @app.get("/api/workspace/image/{file_path:path}")
+    async def workspace_image(file_path: str) -> Response:
+        target = _safe_shared_path(file_path)
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="Image not found")
+        ext = target.suffix.lower()
+        if ext not in _IMAGE_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="Not an image file")
+        content = target.read_bytes()
+        media = _MEDIA_TYPES.get(ext, "application/octet-stream")
+        return Response(content=content, media_type=media)
+
+    @app.get("/api/workspace/index/content")
+    async def workspace_index_content() -> PlainTextResponse:
+        index_path = shared_dir() / "INDEX.md"
+        if not index_path.is_file():
+            raise HTTPException(status_code=404, detail="INDEX.md not found")
+        content = index_path.read_text(encoding="utf-8")
+        return PlainTextResponse(content)
 
     @app.post("/api/workspace/index", response_model=IndexResultModel)
     async def workspace_index(
