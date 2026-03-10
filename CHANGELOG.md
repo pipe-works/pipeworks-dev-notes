@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.5...pipeworks-dev-notes-v0.1.6) (2026-03-10)
+
+
+### Fixes
+
+* **logging:** prefix dev-notes uvicorn output ([eeaa1bb](https://github.com/pipe-works/pipeworks-dev-notes/commit/eeaa1bbb0c1d655e9595fae587ec0c7b480ea050))
+* **logging:** prefix dev-notes uvicorn output ([021ea62](https://github.com/pipe-works/pipeworks-dev-notes/commit/021ea6261d7ca2f75637e63228e08855bfdd8388))
+
 ## [0.1.5](https://github.com/pipe-works/pipeworks-dev-notes/compare/pipeworks-dev-notes-v0.1.4...pipeworks-dev-notes-v0.1.5) (2026-03-05)
 
 
