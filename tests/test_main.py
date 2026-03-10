@@ -1,6 +1,6 @@
 """Tests for module entrypoint helpers."""
 
-from pipeworks_dev_notes.__main__ import _parse_port, find_available_port
+from pipeworks_dev_notes.__main__ import _build_uvicorn_log_config, _parse_port, find_available_port
 
 
 def test_parse_port_accepts_valid_value() -> None:
@@ -24,3 +24,10 @@ def test_find_available_port_scans_forward(monkeypatch) -> None:
 
     assert selected == 8767
     assert state["calls"] == [8765, 8766, 8767]
+
+
+def test_build_uvicorn_log_config_adds_service_prefix() -> None:
+    config = _build_uvicorn_log_config()
+    formatters = config["formatters"]
+    assert formatters["default"]["fmt"].startswith("dev-notes ")
+    assert formatters["access"]["fmt"].startswith("dev-notes ")
